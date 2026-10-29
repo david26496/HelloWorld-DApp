@@ -1,0 +1,292 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HelloWorld 智能合約互動</title>
+
+  <!-- 載入 Ethers.js v6 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.15.0/ethers.umd.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f6fa;
+      color: #202534;
+      margin: 0;
+      padding: 40px 16px;
+    }
+    .container {
+      max-width: 600px;
+      margin: auto;
+      background: white;
+      padding: 28px;
+      border: 1px solid #e1e4eb;
+      border-radius: 16px;
+    }
+    h1 { text-align: center; }
+    h2 { font-size: 19px; }
+    .subtitle {
+      text-align: center;
+      color: #666;
+    }
+    .message {
+      padding: 24px;
+      text-align: center;
+      background: #f1f5fa;
+      border-radius: 10px;
+      font-size: 24px;
+      overflow-wrap: anywhere;
+    }
+    button, input {
+      width: 100%;
+      padding: 13px;
+      margin-top: 12px;
+      box-sizing: border-box;
+      font-size: 15px;
+      border-radius: 8px;
+    }
+    button {
+      border: none;
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #a5acb8;
+      cursor: not-allowed;
+    }
+    input { border: 1px solid #ccc; }
+    .info {
+      color: #666;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .status {
+      padding: 14px;
+      background: #f1f5fa;
+      border-radius: 8px;
+      overflow-wrap: anywhere;
+    }
+    hr {
+      border: 0;
+      border-top: 1px solid #ddd;
+      margin: 25px 0;
+    }
+    a { overflow-wrap: anywhere; }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>HelloWorld 合約測試</h1>
+    <p class="subtitle">學號：15373008 | Ethereum Sepolia</p>
+
+    <h2>連接錢包</h2>
+    <button id="connectBtn">連接 MetaMask</button>
+    <p class="info" id="walletInfo">尚未連接錢包</p>
+
+    <hr>
+
+    <h2>目前合約訊息</h2>
+    <div class="message" id="messageOutput">尚未讀取</div>
+    <button id="readBtn" disabled>重新讀取訊息</button>
+
+    <hr>
+
+    <h2>更新訊息</h2>
+    <input id="newMessage" placeholder="輸入新的訊息">
+    <button id="updateBtn" disabled>更新訊息</button>
+    <p class="info">注意：更新會發送 Sepolia 交易並消耗測試 ETH。</p>
+
+    <hr>
+
+    <h2>交易日誌</h2>
+    <div class="status" id="status">請先連接 MetaMask。</div>
+    <p>
+      <a id="txLink" href="#" target="_blank"
+         rel="noopener noreferrer" hidden>
+         在 Etherscan 查看交易
+      </a>
+    </p>
+  </div>
+
+  <script>
+    // 上週部署的合約地址
+    const CONTRACT_ADDRESS =
+      "0x1d9d23e036F6aAdCA754bc85317cD1f1e041cE11";
+
+    // 合約的 ABI
+    const CONTRACT_ABI = [
+      {
+        "inputs": [],
+        "name": "message",
+        "outputs": [
+          {
+            "internalType": "string",
+            "name": "",
+            "type": "string"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "string",
+            "name": "_newMessage",
+            "type": "string"
+          }
+        ],
+        "name": "updateMessage",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
+    ];
+
+    const SEPOLIA_CHAIN_ID = "0xaa36a7";
+
+    const connectBtn = document.getElementById("connectBtn");
+    const readBtn = document.getElementById("readBtn");
+    const updateBtn = document.getElementById("updateBtn");
+    const messageOutput = document.getElementById("messageOutput");
+    const walletInfo = document.getElementById("walletInfo");
+    const statusOutput = document.getElementById("status");
+    const txLink = document.getElementById("txLink");
+
+    let readContract = null;
+    let writeContract = null;
+
+    function showStatus(text) {
+      statusOutput.textContent = text;
+    }
+
+    function errorMessage(error) {
+      return error.shortMessage || error.message || String(error);
+    }
+
+    // 連接 MetaMask
+    async function connectWallet() {
+      connectBtn.disabled = true;
+
+      try {
+        if (!window.ethereum) {
+          throw new Error("找不到 MetaMask，請先安裝擴充功能。");
+        }
+
+        if (typeof ethers === "undefined") {
+          throw new Error("Ethers.js 載入失敗，請檢查網路連線。");
+        }
+
+        showStatus("正在連接 MetaMask...");
+
+        await window.ethereum.request({
+          method: "eth_requestAccounts"
+        });
+
+        const chainId = await window.ethereum.request({
+          method: "eth_chainId"
+        });
+
+        if (chainId.toLowerCase() !== SEPOLIA_CHAIN_ID) {
+          throw new Error("請先在 MetaMask 切換到 Ethereum Sepolia。");
+        }
+
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+
+        readContract = new ethers.Contract(
+          CONTRACT_ADDRESS, CONTRACT_ABI, provider
+        );
+
+        writeContract = new ethers.Contract(
+          CONTRACT_ADDRESS, CONTRACT_ABI, signer
+        );
+
+        walletInfo.textContent =
+          "錢包地址：" + await signer.getAddress();
+
+        connectBtn.textContent = "已連接 MetaMask";
+        readBtn.disabled = false;
+        updateBtn.disabled = false;
+
+        await readMessage();
+
+      } catch (error) {
+        showStatus("連接失敗：" + errorMessage(error));
+        connectBtn.disabled = false;
+      }
+    }
+
+    // 讀取鏈上 message
+    async function readMessage() {
+      if (!readContract) return;
+
+      try {
+        showStatus("正在讀取區塊鏈資料...");
+        const message = await readContract.message();
+        messageOutput.textContent = message;
+        showStatus("成功讀取 Sepolia 上的合約訊息。");
+      } catch (error) {
+        showStatus("讀取失敗：" + errorMessage(error));
+      }
+    }
+
+    // 修改鏈上 message
+    async function updateMessage() {
+      if (!writeContract) return;
+
+      const newMessage =
+        document.getElementById("newMessage").value.trim();
+
+      if (!newMessage) {
+        showStatus("請先輸入要更新的訊息。");
+        return;
+      }
+
+      updateBtn.disabled = true;
+      txLink.hidden = true;
+
+      try {
+        showStatus("請在 MetaMask 確認交易...");
+
+        const tx = await writeContract.updateMessage(newMessage);
+
+        txLink.href =
+          "https://sepolia.etherscan.io/tx/" + tx.hash;
+        txLink.hidden = false;
+
+        showStatus("交易已送出，正在等待區塊確認...");
+
+        const receipt = await tx.wait();
+
+        if (!receipt || receipt.status !== 1) {
+          throw new Error("交易未成功執行。");
+        }
+
+        await readMessage();
+        showStatus("交易成功！合約訊息已更新。");
+
+      } catch (error) {
+        showStatus("更新失敗：" + errorMessage(error));
+      } finally {
+        updateBtn.disabled = false;
+      }
+    }
+
+    // 按鈕事件
+    connectBtn.addEventListener("click", connectWallet);
+    readBtn.addEventListener("click", readMessage);
+    updateBtn.addEventListener("click", updateMessage);
+
+    // 錢包帳戶或網路改變時，重新初始化網頁
+    if (window.ethereum && window.ethereum.on) {
+      window.ethereum.on("accountsChanged", () => location.reload());
+      window.ethereum.on("chainChanged", () => location.reload());
+    }
+  </script>
+</body>
+</html>
